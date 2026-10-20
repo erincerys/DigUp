@@ -12,6 +12,7 @@ const isMac = /Mac/.test(navigator.platform);
 const isWindows = /Win/.test(navigator.platform);
 const isLinux = /Linux/.test(navigator.platform);
 const MOD = isMac ? "⌘" : "Ctrl+";
+const SHIFT_MOD = isMac ? "⇧⌘" : "Ctrl+Shift+";
 const FILE_MANAGER = isMac ? "Finder" : isWindows ? "Explorer" : "Files";
 // Pictures every web view shows as they are; anything else (HEIC, TIFF, RAW…) comes as JPEG from the helper.
 const SHOWN_AS_IS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp"]);
@@ -59,6 +60,10 @@ function copyResult(event, hit, navigated) {
   event.preventDefault();
   invoke("copy_file", { path: hit.path }).catch(() => {});
   return true;
+}
+
+function copyPath(hit) {
+  navigator.clipboard.writeText(isWindows ? hit.path.replaceAll("/", "\\") : hit.path).catch(() => {});
 }
 
 /// Where a result opens: a PDF's page past the first, a recording's or video's moment past its first second (the Mac

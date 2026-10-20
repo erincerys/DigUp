@@ -93,6 +93,7 @@ With the .deb, DigUp tells you when there's a new version and opens its release 
 | Space | Space | A big preview, at the page or moment (once you've moved to a result) |
 | ⌘↩ | Ctrl+Enter | Shows it in Finder, Explorer or your file manager |
 | ⌘C | Ctrl+C (in the window) | Copies the file, to paste anywhere |
+| | Ctrl+Shift+C | Copies the file's full path, to paste in a file picker, a terminal or a chat |
 | ⌘O | Ctrl+O | The same search in a bigger window, with a picture grid and filters |
 
 DigUp lives in the menu bar on a Mac and in the tray on Windows and Linux, where you can see how indexing is going,

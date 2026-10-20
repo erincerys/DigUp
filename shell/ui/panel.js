@@ -480,10 +480,17 @@ document.addEventListener("keydown", (event) => {
       else openSelected();
       break;
     case "c":
-    case "C":
-      if (!modifier || event.altKey || event.shiftKey || state.selection === WEAKER) return;
-      copyResult(event, selectedHit(), state.navigated);
+    case "C": {
+      if (!modifier || event.altKey || state.selection === WEAKER) return;
+      const hit = selectedHit();
+      if (!event.shiftKey) {
+        copyResult(event, hit, state.navigated);
+      } else if (hit) {
+        event.preventDefault();
+        copyPath(hit);
+      }
       break;
+    }
     case "o":
     case "O":
       if (!modifier || event.altKey || event.shiftKey) return;

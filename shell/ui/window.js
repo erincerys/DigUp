@@ -379,8 +379,8 @@ function wire(item, hit) {
       ["Open", () => open(hit)],
       [`Show in ${FILE_MANAGER}`, () => reveal(hit)],
       null,
-      ["Copy", () => invoke("copy_file", { path: hit.path }).catch(failed)],
-      ["Copy Path", () => navigator.clipboard.writeText(hit.path).catch(() => {})],
+      ["Copy", () => invoke("copy_file", { path: hit.path }).catch(failed), `${MOD}C`],
+      ["Copy Path", () => copyPath(hit), `${SHIFT_MOD}C`],
     ]);
   };
 }
@@ -1000,6 +1000,13 @@ document.addEventListener("keydown", (event) => {
   if (!$menu.hidden && event.key === "Escape") {
     event.preventDefault();
     hideMenu();
+    return;
+  }
+  if (modifier && event.shiftKey && !event.altKey && event.key.toLowerCase() === "c") {
+    const hit = state.hasResults && state.query.trim() ? selectedHit() : null;
+    if (!hit) return;
+    event.preventDefault();
+    copyPath(hit);
     return;
   }
   if (modifier && !event.altKey && !event.shiftKey) {
