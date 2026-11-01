@@ -21,7 +21,13 @@ public enum Rules {
     ]
     static let projectBundleExtensions: Set<String> = ["xcodeproj", "xcworkspace"]
 
-    static let docExtensions: Set<String> = ["txt", "text", "md", "markdown", "rtf", "docx", "doc", "odt", "html", "htm"]
+    static let docExtensions: Set<String> = [
+        "txt", "text", "md", "markdown", "typ", "rtf", "docx", "doc", "odt", "html", "htm", "xlsx", "pptx", "ods", "odp",
+    ]
+
+    /// FairPlay-protected music (Apple Music downloads, iTunes Store songs bought before 2009): only the Music app can
+    /// play it. Reading it fails ("Cannot Decode", "may be damaged"), so it's skipped rather than counted as failed.
+    static let protectedExtensions: Set<String> = ["m4p"]
 
     /// Source code and data files: off by default (your editor and ripgrep search them better, and they flood an index).
     static let codeExtensions: Set<String> = [
@@ -47,7 +53,9 @@ public enum Rules {
         "metal", "glsl", "hlsl", "wgsl", "cu", "cuh", "ino", "v", "sv", "tex",
     ]
     /// What goes with code: a repo's docs and its settings.
-    static let codeTextExtensions: Set<String> = ["md", "markdown", "rst", "adoc", "org", "txt", "yaml", "yml", "toml"]
+    static let codeTextExtensions: Set<String> = [
+        "md", "markdown", "rst", "adoc", "org", "typ", "txt", "yaml", "yml", "toml",
+    ]
     /// Code known by its name alone.
     static let codeFileNames: Set<String> = [
         "Makefile", "makefile", "GNUmakefile", "Dockerfile", "Containerfile", "Justfile", "justfile", "Rakefile",
@@ -119,7 +127,10 @@ public enum Rules {
     public static func isScreenshot(_ url: URL) -> Bool {
         if hasScreenshotMarker(url) { return true }
         let name = url.lastPathComponent
-        return screenshotPrefixes.contains { name.hasPrefix($0) }
+        if screenshotPrefixes.contains(where: { name.hasPrefix($0) }) { return true }
+        // GNOME, KDE's Spectacle and Windows save into a "Screenshots" folder, and so do most tools whose names say
+        // nothing ("2026-02-10_10-10.png"); a picture there is a screenshot whatever it's called.
+        return url.deletingLastPathComponent().lastPathComponent.caseInsensitiveCompare("Screenshots") == .orderedSame
     }
 
     /// Whether a change the folder watcher reports at `path` is where the crawl of `root` goes: not inside a folder it
@@ -128,6 +139,7 @@ public enum Rules {
     /// live under ~/Library, and the log line about a change is a change again.
     public static func isWalked(_ path: String, root: String, home: String, excluded: [String]) -> Bool {
         guard path == root || FolderSelection.isInside(path, root) else { return false }
+        if isCacheDirectory(URL(fileURLWithPath: root)) { return false }
         var folder = root
         for part in path.dropFirst(root.count).split(separator: "/") {
             folder += "/" + part
@@ -143,9 +155,20 @@ public enum Rules {
         let name = url.lastPathComponent
         if skippedFolderNames.contains(name) { return "developer folder" }
         if name.hasSuffix(".noindex") { return ".noindex folder" }
+        if isCacheDirectory(url) { return "cache folder" }
         if url.path == home + "/Library" { return "~/Library" }
         if excluded.contains(where: { url.path == $0 || url.path.hasPrefix($0 + "/") }) { return "excluded folder" }
         return nil
+    }
+
+    /// The Cache Directory Tagging specification requires this exact 43-byte header, not just the filename.
+    static func isCacheDirectory(_ url: URL) -> Bool {
+        let tag = url.appendingPathComponent("CACHEDIR.TAG")
+        guard let info = FileSystem.info(of: tag.path), info.isRegular, !info.dataless,
+              let handle = try? FileHandle(forReadingFrom: tag) else { return false }
+        defer { try? handle.close() }
+        let signature = Data("Signature: 8a477f597d28d172789f06886806bc55".utf8)
+        return (try? handle.read(upToCount: signature.count)) == signature
     }
 
     static func isProjectRoot(_ folder: String) -> Bool {
@@ -157,12 +180,19 @@ public enum Rules {
 
     static let cameraPrefixes = ["img", "dsc", "pxl", "mvimg", "vid", "gopr", "dji", "photo", "whatsapp", "screenshot"]
 
-    /// Machine-made names like "clip_000123", "frame-0042" or "3f9a1c0e-…", but not camera names like "IMG_1234".
+    /// Machine-made names like "clip_000123", "frame-0042" or "3f9a1c0e-…", but not camera names like "IMG_1234" or
+    /// the date and time phones write ("20261021_143022", "2026-10-21 14.30.22").
     public static func looksMachineNamed(_ stem: String) -> Bool {
         let name = stem.lowercased()
-        if cameraPrefixes.contains(where: { name.hasPrefix($0) }) { return false }
+        if cameraPrefixes.contains(where: { name.hasPrefix($0) }) || startsWithDate(name) { return false }
         if name.range(of: #"^[0-9a-f]{8,}([-_][0-9a-f]{4,})*$"#, options: .regularExpression) != nil { return true }
         return name.range(of: #"^[a-z]{0,16}[-_. ]?\d{3,}([-_.]\d+)*$"#, options: .regularExpression) != nil
+    }
+
+    /// A name that starts with a date (year, month and day, with or without separators), as phone cameras write them.
+    static func startsWithDate(_ name: String) -> Bool {
+        name.range(of: #"^(19|20)\d{2}[-_.]?(0[1-9]|1[0-2])[-_.]?(0[1-9]|[12]\d|3[01])([-_. (]|$)"#,
+                   options: .regularExpression) != nil
     }
 
     /// Folders with hundreds of same-kind, machine-named media files: training data, not your stuff.

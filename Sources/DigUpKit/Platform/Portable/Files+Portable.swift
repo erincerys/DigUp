@@ -26,8 +26,11 @@ extension Rules {
     static func classify(_ url: URL, values: URLResourceValues?, options: IndexOptions) -> Classification {
         let ext = url.pathExtension.lowercased()
         if options.excludedExtensions.contains(ext) { return .skip("excluded type") }
+        if protectedExtensions.contains(ext) { return .skip("copy-protected") }
         // .ts / .mts are usually TypeScript. Only a real transport stream is video.
         if ext == "ts" || ext == "mts" || ext == "m2ts" {
+            // The look inside would download a cloud placeholder; the crawl leaves placeholders alone anyway.
+            if FileSystem.info(of: url.path)?.dataless == true { return .skip("in the cloud, not downloaded") }
             if isMPEGTransportStream(url) { return .index(.video) }
             return options.includeCode ? .index(.doc) : .skip("code or data file")
         }
@@ -60,9 +63,6 @@ enum FileSystem {
     static func isPackage(_ url: URL, _ values: URLResourceValues?) -> Bool {
         url.hasDirectoryPath && packageExtensions.contains(url.pathExtension.lowercased())
     }
-
-    /// No iCloud here. (OneDrive's Files On-Demand placeholders are a file attribute: `info`, on Windows.)
-    static func isInCloud(_ values: URLResourceValues?) -> Bool { false }
 
     #if os(Windows)
     /// The file's own facts, without following a link. OneDrive's Files On-Demand placeholders are `dataless` (their
@@ -121,6 +121,24 @@ enum FileSystem {
     /// is `DirectoryWalk` here.
     static func walk(_ root: URL) -> DirectoryWalk? { DirectoryWalk(root) }
     #endif
+
+    /// The folder opens for listing. Cheaper than listing it: a cloud folder's top level can hold thousands of entries.
+    static func canList(_ path: String) -> Bool {
+        #if os(Windows)
+        let pattern = path.replacingOccurrences(of: "/", with: "\\") + "\\*"
+        var found = WIN32_FIND_DATAW()
+        let search = pattern.withCString(encodedAs: UTF16.self) {
+            FindFirstFileExW($0, FindExInfoBasic, &found, FindExSearchNameMatch, nil, 0)
+        }
+        guard let search, search != INVALID_HANDLE_VALUE else { return false }
+        FindClose(search)
+        return true
+        #else
+        guard let dir = opendir(path) else { return false }
+        closedir(dir)
+        return true
+        #endif
+    }
 
     /// git on PATH; none → everything in a folder counts, as on a Mac without it.
     static let git: String? = executable("git")

@@ -330,7 +330,7 @@ private struct FolderSettings: View {
             } header: {
                 Text("Skip these file types")
             } footer: {
-                Text("DigUp only reads pictures, PDFs, documents (txt, md, rtf, docx, odt, html), audio and video here; "
+                Text("DigUp only reads pictures, PDFs, documents (txt, md, typ, rtf, docx, odt, html), audio and video here; "
                      + "code is read only in the code folders (the Code tab). Keys, certificates and password files are "
                      + "never read, nor are hidden folders like ~/.ssh.")
                     .font(.system(size: 11))
@@ -464,6 +464,7 @@ private struct IndexProgress: View {
 private struct FolderStatusRow: View {
     let summary: Engine.RootSummary
     let remove: () -> Void
+    @State private var showingReasons = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -502,7 +503,28 @@ private struct FolderStatusRow: View {
                      : "\(summary.indexed.formatted()) of \(summary.files.formatted()) indexed")
                     .font(.system(size: 12, weight: .medium).monospacedDigit())
                 if !states.isEmpty {
-                    Text(states).font(.system(size: 11)).foregroundStyle(.secondary)
+                    if reasons.isEmpty {
+                        Text(states).font(.system(size: 11)).foregroundStyle(.secondary)
+                    } else {
+                        Button { showingReasons.toggle() } label: {
+                            HStack(spacing: 3) {
+                                Text(states)
+                                Image(systemName: "info.circle")
+                            }
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Why some files aren't searchable")
+                        .popover(isPresented: $showingReasons, arrowEdge: .bottom) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(reasons, id: \.self) { Text($0) }
+                            }
+                            .font(.system(size: 12))
+                            .padding(12)
+                            .frame(maxWidth: 360, alignment: .leading)
+                        }
+                    }
                 }
             }
             Button(action: remove) {
@@ -520,8 +542,30 @@ private struct FolderStatusRow: View {
          summary.unfinished > 0
             ? "\(summary.unfinished.formatted()) long \(summary.unfinished == 1 ? "file" : "files") to finish" : nil,
          summary.skipped > 0 ? "\(summary.skipped.formatted()) skipped" : nil,
-         summary.failed > 0 ? "\(summary.failed.formatted()) couldn't be read" : nil].compactMap { $0 }
+         summary.failed > 0 ? "\(summary.failed.formatted()) couldn't be read" : nil,
+         summary.leftOutCount > 0 ? "\(summary.leftOutCount.formatted()) not read" : nil].compactMap { $0 }
             .joined(separator: " · ")
+    }
+
+    /// One line per reason: what the crawl never queued from this folder, then what was skipped once read.
+    private var reasons: [String] {
+        let crawl: [String: String] = [
+            "other type": "of types DigUp doesn't read",
+            "app or bundle": "inside apps or bundles",
+            "Photos library": "in a Photos library (its photos aren't read yet)",
+            "link or special file": "links or special files",
+            "in the cloud, not downloaded": "only in the cloud, not downloaded",
+            "inside a code project": "inside code projects, where only screenshots count",
+            "dataset": "in folders that look like datasets",
+            "code or data file": "code or data files",
+            "excluded type": "of the file types you skip",
+        ]
+        let leftOut = summary.leftOut.sorted { $0.value > $1.value }.map { reason, count in
+            reason.hasPrefix("folders ") ? "\(count.formatted()) folders weren't opened (\(reason.dropFirst(8)))"
+                : "\(count.formatted()) \(crawl[reason] ?? reason)"
+        }
+        let skipped = summary.skippedReasons.sorted { $0.value > $1.value }.map { "\($1.formatted()) skipped: \($0)" }
+        return leftOut + skipped
     }
 }
 
@@ -649,8 +693,49 @@ private struct CodeSettings: View {
                     Spacer()
                 }
             }
+            if state.model.hasCode {
+                Section {
+                    ForEach(state.model.settings.codeExcluded, id: \.path) { folder in
+                        HStack {
+                            Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path))
+                                .resizable()
+                                .frame(width: 18, height: 18)
+                            Text(tildePath(folder.path)).lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            Button {
+                                state.app.applyCodeFolders(state.model.settings.codeRoots,
+                                                           excluded: state.model.settings.codeExcluded.filter { $0 != folder })
+                            } label: {
+                                Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Search this folder's code again")
+                        }
+                    }
+                    if state.model.settings.codeExcluded.isEmpty {
+                        Text("None. What git ignores, vendored and generated code are skipped anyway.")
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Skip these folders")
+                } footer: {
+                    HStack {
+                        Button {
+                            state.app.pickFolders(for: NSApp.keyWindow, prompt: "Skip") { folders in
+                                guard !folders.isEmpty else { return }
+                                let excluded = state.model.settings.codeExcluded
+                                state.app.applyCodeFolders(state.model.settings.codeRoots,
+                                                           excluded: excluded + folders.filter { !excluded.contains($0) })
+                            }
+                        } label: {
+                            Label("Skip a Folder…", systemImage: "plus")
+                        }
+                        Spacer()
+                    }
+                }
+            }
             Section {
-                Picker("Open code in", selection: Binding(get: { CodeEditor.current.id },
+                Picker("Open code in", selection: Binding(get: { CodeEditor.chosen(state.model.settings.codeEditor).id },
                                                           set: { state.app.setCodeEditor($0) })) {
                     ForEach(CodeEditor.installed) { editor in Text(editor.name).tag(editor.id) }
                     Text(CodeEditor.defaultApp.name).tag(CodeEditor.defaultApp.id)
