@@ -51,4 +51,20 @@ import Testing
         let report = Crawler.crawl([root], options: options)
         #expect(report.candidates.map { URL(fileURLWithPath: $0.path).lastPathComponent } == ["kept.txt"])
     }
+
+    @Test func linkedFoldersAreNotWalkedInto() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("DigUpLinks-\(UUID().uuidString)", isDirectory: true)
+        let root = base.appendingPathComponent("root", isDirectory: true)
+        let outside = base.appendingPathComponent("outside", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try fm.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+        try Data("notes".utf8).write(to: root.appendingPathComponent("kept.txt"))
+        try Data("notes".utf8).write(to: outside.appendingPathComponent("outside.txt"))
+        try fm.createSymbolicLink(at: root.appendingPathComponent("elsewhere"), withDestinationURL: outside)
+        try fm.createSymbolicLink(at: root.appendingPathComponent("loop"), withDestinationURL: root)
+        let report = Crawler.crawl([root], options: IndexOptions())
+        #expect(report.candidates.map { URL(fileURLWithPath: $0.path).lastPathComponent } == ["kept.txt"])
+    }
 }

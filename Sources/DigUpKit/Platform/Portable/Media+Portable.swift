@@ -6,6 +6,19 @@ import Foundation
 enum FFmpeg {
     static let ffmpeg = find("ffmpeg")
     static let ffprobe = find("ffprobe")
+    static let threadLimit = max(1, physicalCoreCount() / 2)
+
+    static func physicalCoreCount() -> Int {
+        let root = "/sys/devices/system/cpu"
+        let cpus = ((try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [])
+            .filter { $0.wholeMatch(of: /cpu[0-9]+/) != nil }
+        let cores = Set(cpus.compactMap { cpu in
+            let topology = "\(root)/\(cpu)/topology/"
+            return (try? String(contentsOfFile: topology + "core_cpus_list", encoding: .utf8))
+                ?? (try? String(contentsOfFile: topology + "thread_siblings_list", encoding: .utf8))
+        })
+        return cores.isEmpty ? ProcessInfo.processInfo.activeProcessorCount : cores.count
+    }
 
     static func find(_ name: String) -> String? {
         let environment = ProcessInfo.processInfo.environment
@@ -25,7 +38,8 @@ enum FFmpeg {
         guard let tool else { throw ExtractError.unreadable("ffmpeg isn't installed (audio and video need it)") }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = arguments
+        let limit = String(threadLimit)
+        process.arguments = tool == ffmpeg ? ["-threads", limit, "-filter_threads", limit] + arguments : arguments
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice

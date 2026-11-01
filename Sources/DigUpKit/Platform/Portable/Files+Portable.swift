@@ -115,13 +115,6 @@ enum FileSystem {
     }
     #endif
 
-    #if os(Windows)
-    /// The crawl's walk of a folder. Foundation's enumerator on Windows skips the wrong folder's contents after
-    /// `skipDescendants()` (2026-10-11, Swift 6.4: skipping one folder emptied a sibling that came before it), so the walk
-    /// is `DirectoryWalk` here.
-    static func walk(_ root: URL) -> DirectoryWalk? { DirectoryWalk(root) }
-    #endif
-
     /// The folder opens for listing. Cheaper than listing it: a cloud folder's top level can hold thousands of entries.
     static func canList(_ path: String) -> Bool {
         #if os(Windows)
@@ -170,7 +163,6 @@ enum FileSystem {
     }
 }
 
-#if os(Windows)
 /// A depth-first walk with FileManager's enumerator's shape (`nextObject`, `skipDescendants`), where skipping leaves out
 /// exactly the folder just returned. Hidden files (the attribute, or a name starting with a dot, as on a Mac) are left
 /// out, and folders that can't be read are passed over.
@@ -196,6 +188,7 @@ final class DirectoryWalk {
     func skipDescendants() { opened = nil }
 
     private func contents(of folder: URL) -> [URL] {
+        #if os(Windows)
         // Even asking Foundation only for directory/hidden flags reads the file size internally and can
         // trap when its low DWORD does not fit Int32 (swift-foundation#2096). Keep the whole walk native.
         let pattern = folder.path.replacingOccurrences(of: "/", with: "\\") + "\\*"
@@ -222,7 +215,25 @@ final class DirectoryWalk {
             entries.append(folder.appendingPathComponent(name, isDirectory: directory))
         } while FindNextFileW(search, &found)
         return entries
+        #else
+        guard let dir = opendir(folder.path) else { return [] }
+        defer { closedir(dir) }
+        var entries: [URL] = []
+        while let entry = readdir(dir) {
+            let name = withUnsafeBytes(of: entry.pointee.d_name) {
+                String(cString: $0.baseAddress!.assumingMemoryBound(to: CChar.self))
+            }
+            if name.hasPrefix(".") { continue }
+            var directory = entry.pointee.d_type == UInt8(DT_DIR)
+            if entry.pointee.d_type == UInt8(DT_UNKNOWN) {   // file systems that leave the type to lstat
+                var info = stat()
+                directory = lstat(folder.path + "/" + name, &info) == 0
+                    && (UInt32(info.st_mode) & UInt32(S_IFMT)) == UInt32(S_IFDIR)
+            }
+            entries.append(folder.appendingPathComponent(name, isDirectory: directory))
+        }
+        return entries
+        #endif
     }
 }
-#endif
 #endif
